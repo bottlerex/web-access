@@ -10,6 +10,7 @@
 // 持久态只有 config.env 一处；override 是单次 spawn 通过命令行参数表达，不读 process.env。
 
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,6 +31,7 @@ export function knownBrowsers() {
         { id: 'chrome-canary', label: 'Chrome Canary',  devToolsPath: path.join(home, 'Library/Application Support/Google/Chrome Canary/DevToolsActivePort') },
         { id: 'chromium',      label: 'Chromium',       devToolsPath: path.join(home, 'Library/Application Support/Chromium/DevToolsActivePort') },
         { id: 'edge',          label: 'Microsoft Edge', devToolsPath: path.join(home, 'Library/Application Support/Microsoft Edge/DevToolsActivePort') },
+        { id: 'brave',         label: 'Brave',          devToolsPath: path.join(home, 'Library/Application Support/BraveSoftware/Brave-Browser/DevToolsActivePort') },
       ];
     case 'linux':
       return [
@@ -78,18 +80,55 @@ function readConfig() {
   return cfg;
 }
 
+// 从 /json/version 端点获取 wsPath（用于手动 --remote-debugging-port 启动的浏览器）
+async function fetchWsPathFromPort(port) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { hostname: '127.0.0.1', port, path: '/json/version', method: 'GET', timeout: 2000 },
+      (res) => {
+        let data = '';
+        res.on('data', d => { data += d; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const ws = json.webSocketDebuggerUrl || null;
+            // 取路径部分（去掉 ws://host:port 前缀）
+            const wsPath = ws ? new URL(ws).pathname : null;
+            resolve(wsPath);
+          } catch { resolve(null); }
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
 // 返回所有开了 toggle 且端口活的浏览器
 async function detectAll() {
   const result = [];
   for (const browser of knownBrowsers()) {
-    let content;
-    try { content = fs.readFileSync(browser.devToolsPath, 'utf8'); }
-    catch { continue; }
-    const lines = content.trim().split(/\r?\n/).filter(Boolean);
-    const port = parseInt(lines[0], 10);
+    let port, wsPath;
+    try {
+      const content = fs.readFileSync(browser.devToolsPath, 'utf8');
+      const lines = content.trim().split(/\r?\n/).filter(Boolean);
+      port = parseInt(lines[0], 10);
+      wsPath = lines[1] || null;
+    } catch {
+      // DevToolsActivePort 不存在（手动 --remote-debugging-port 启动时不写文件）
+      // fallback：扫描常见端口，用 /json/version 确认
+      const FALLBACK_PORTS = [9222, 9223, 9224];
+      for (const p of FALLBACK_PORTS) {
+        if (!(await checkPort(p))) continue;
+        const wp = await fetchWsPathFromPort(p);
+        if (wp) { port = p; wsPath = wp; break; }
+      }
+      if (!port) continue;
+    }
     if (!(port > 0 && port < 65536)) continue;
     if (!(await checkPort(port))) continue;
-    result.push({ ...browser, port, wsPath: lines[1] || null });
+    result.push({ ...browser, port, wsPath });
   }
   return result;
 }
