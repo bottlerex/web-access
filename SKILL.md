@@ -200,11 +200,17 @@ Proxy 持续运行，不建议主动停止——重启后需要在浏览器中�
 - **速度**：多子 Agent 并行，总耗时约等于单个子任务时长
 - **上下文保护**：抓取内容不进入主 Agent 上下文，主 Agent 只接收摘要，节省 token
 
-**并行 CDP 操作**：每个子 Agent 在当前用户浏览器实例中，自行创建所需的后台 tab（`/new`），自行操作，任务结束自行关闭（`/close`）。所有子 Agent 共享一个浏览器、一个 Proxy，通过不同 targetId 操作不同 tab，无竞态风险。
+**并行 CDP 操作**：每个子 Agent 在当前用户浏览器实例中，自行创建所需的后台 tab（`/new`），自行操作，任务结束自行关闭（`/close`）。所有子 Agent 共享一个浏览器、一个 Proxy，通过不同 targetId 操作不同 tab。
 
-**子 Agent Prompt 写法：目标导向，而非步骤指令**
-- 必须在子 Agent prompt 中写 `必须加载 web-access skill 并遵循指引` ，子 Agent 会自动加载 skill，无需在 prompt 中复制 skill 内容或指定路径。
-- 子 Agent 有自主判断能力。主 Agent 的职责是说清楚**要什么**，仅在必要与确信时限定**怎么做**。过度指定步骤会剥夺子 Agent 的判断空间，反而引入主 Agent 的假设错误。**避免 prompt 用词对子 Agent 行为的暗示**：「搜索xx」会把子 Agent 锚定到 WebSearch，而实际上有些反爬站点需要 CDP 直接访问主站才能有效获取内容。主 Agent 写 prompt 时应描述目标（「获取」「调研」「了解」），避免用暗示具体手段的动词（「搜索」「抓取」「爬取」）。
+⚠️ **共享 Proxy 限制（并行时强制）**：
+- **禁止**任何子 Agent 执行 `pkill -f cdp-proxy.mjs` 或切换浏览器（`--browser` 参数）——会连带终止其他子 Agent 正在用的 Proxy
+- **并行上限 ≤9**（rules/01 §0 层硬闸门）
+- 密集并行打开大量 tab 可能触发反爬风控（帐号级共享状态），批次建议 ≤5 个子 Agent
+
+**子 Agent Prompt 写法：目标导向，主线传入 skill 内容**
+- ⚠️ **禁止**在子 Agent prompt 写「必须加载 web-access skill 并遵循指引」——子 Agent 能否加载 skill 取决于其 toolset 配置，不能保证成功，失败时静默忽略（无 FAIL 回报）
+- 主线 MUST 把本 skill 的关键操作指引（CDP Proxy API、浏览器哲学、工具选择表）直接复制到子 Agent prompt 中，确保子 Agent 有完整 context
+- 子 Agent 有自主判断能力。主 Agent 的职责是说清楚**要什么**，仅在必要与确信时限定**怎么做**。**避免 prompt 用词对子 Agent 行为的暗示**：描述目标（「获取」「调研」「了解」），避免暗示具体手段的动词（「搜索」「抓取」「爬取」）。
 
 **分治判断标准：**
 
