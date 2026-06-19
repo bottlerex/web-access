@@ -2,9 +2,7 @@
 name: web-access
 license: MIT
 github: https://github.com/eze-is/web-access
-description:
-  所有联网操作必须通过此 skill 处理，包括：搜索、网页抓取、登录后操作、网络交互等。
-  触发场景：用户要求搜索信息、查看网页内容、访问需要登录的网站、操作网页界面、抓取社交媒体内容（小红书、微博、推特等）、读取动态渲染页面、以及任何需要真实浏览器环境的网络任务。
+description: "Use when: user wants to search the web, fetch a webpage, access login-required sites (Threads, X, 小紅書, 微博), scrape social media content, interact with dynamic pages, or any task needing a real browser with login state. Do NOT use for: static public URLs that WebFetch can handle directly."
 metadata:
   author: 一泽Eze
   version: "2.5.3"
@@ -252,10 +250,20 @@ updated: 2026-03-19
 ## 有效模式
 已验证的 URL 模式、操作策略、选择器
 
+## 操作流程
+複雜操作（≥3 步驟）MUST 記錄於此，格式：
+前置條件：{登入狀態、必要參數}
+步驟：
+1. {動作 + selector 或 URL}
+2. ...
+常見失敗點：{哪個步驟容易出錯及原因}
+
 ## 已知陷阱
 什么会失败以及为什么
 ```
 经验/陷阱内容标注发现日期，当作"可能有效的提示"而非"保证正确的事实"。
+
+**操作流程固化規則（2026-06-18）**：CDP 操作完成複雜流程（≥3 步驟，如政府網站繳費、ERP 表單）後，MUST 將完整步驟序列記錄到 `## 操作流程` 段落，供後續 session 直接重用，不重新摸索。
 
 ## References 索引
 
