@@ -207,6 +207,16 @@ Proxy 持续运行，不建议主动停止——重启后需要在浏览器中�
 - **并行上限 ≤9**（rules/01 §0 层硬闸门）
 - 密集并行打开大量 tab 可能触发反爬风控（帐号级共享状态），批次建议 ≤5 个子 Agent
 
+⚠️ **Worker / concurrent tab 上限**：同一 session 最多同時開啟 **3 個** CDP worker（含主 Agent 自身）；超過易觸發瀏覽器反爬機制或 Proxy 連線不穩。超出需求時，排隊序列執行而非繼續並行。
+
+⚠️ **Tab 泄漏清理（強制）**：每個子 Agent 任務結束後 MUST 顯式 `curl -s "http://localhost:3456/close?target=<targetId>"` 關閉自行創建的 tab。若 Agent 異常中斷，主線 MUST 在下次任務前掃 `/list` 確認並補關孤兒 tab，防止 tab 累積拖慢 Proxy。
+
+⚠️ **Proxy healthcheck fallback**：Proxy 無回應（`/list` curl 超時或 connection refused）時，**禁止靜默跳過**；MUST 先執行 `node "${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs"` 重新確認狀態。若 check-deps 失敗，回報用戶並中止操作，不得以「應該可以繼續」假設繼續執行。
+
+⚠️ **頁面無預期元素的回退策略**：CDP 操作若目標元素不存在（`querySelector` 返回 null 或 JS 拋錯），MUST 先判斷是「頁面尚未加載完」（等待並 retry ≤2 次）還是「元素本來不存在」（立即改變策略，不無限 retry）；無法取得預期元素時 MUST 回報錯誤，禁止以假設的 fallback 值繼續。
+
+⚠️ **Log 輸出格式統一**：所有 CDP 操作的 log（console.log / stderr 輸出）MUST 使用統一 prefix：`[web-access][INFO]`、`[web-access][WARN]`、`[web-access][ERROR]`，方便主線過濾與 debug。
+
 **子 Agent Prompt 写法：目标导向，主线传入 skill 内容**
 - ⚠️ **禁止**在子 Agent prompt 写「必须加载 web-access skill 并遵循指引」——子 Agent 能否加载 skill 取决于其 toolset 配置，不能保证成功，失败时静默忽略（无 FAIL 回报）
 - 主线 MUST 把本 skill 的关键操作指引（CDP Proxy API、浏览器哲学、工具选择表）直接复制到子 Agent prompt 中，确保子 Agent 有完整 context
