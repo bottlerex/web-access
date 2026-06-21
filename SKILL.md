@@ -8,6 +8,8 @@ metadata:
   version: "2.5.3"
 ---
 
+> **版本核實**：本 skill 依賴 CDP Proxy API（localhost:3456）。若 Proxy 版本升級導致 API schema 漂移（endpoint 新增/移除/參數變更），操作會靜默失敗。使用前若懷疑 schema 不符，執行 `curl -s http://localhost:3456/version 2>/dev/null || echo "no /version endpoint"` 確認 Proxy 版本，並與 SKILL.md 版本號比對。schema 不符時 MUST 更新本 skill 或降級 Proxy。
+
 # web-access Skill
 
 ## 前置检查
@@ -175,6 +177,8 @@ curl -s "http://localhost:3456/close?target=ID"
 
 用户浏览器真实渲染，截图可捕获当前视频帧。核心能力：通过 `/eval` 操控 `<video>` 元素（获取时长、seek 到任意时间点、播放/暂停/全屏），配合 `/screenshot` 采帧，可对视频内容进行离散采样分析。
 
+⚠️ **暫存媒體檔清理（強制）**：視頻截幀或字幕擷取過程中產生的暫存檔（`/tmp/*.vtt`、`/tmp/*.png`），MUST 在 `finally` 區塊中清理（`rm -f /tmp/shot-*.png /tmp/*.vtt`）。任務失敗或超時時同樣執行清理，不允許殘留暫存檔。
+
 ### 登录判断
 
 用户日常浏览器天然携带登录态，大多数常用网站已登录。
@@ -204,6 +208,7 @@ Proxy 持续运行，不建议主动停止——重启后需要在浏览器中�
 
 ⚠️ **共享 Proxy 限制（并行时强制）**：
 - **禁止**任何子 Agent 执行 `pkill -f cdp-proxy.mjs` 或切换浏览器（`--browser` 参数）——会连带终止其他子 Agent 正在用的 Proxy
+- **多帳號 spider 隔離**：並行子 Agent 若需發出 kill 信號（如終止自身創建的輔助進程），MUST 用精確 PID（`kill <pid>`）而非 pattern kill（`pkill -f <pattern>`）——pattern kill 會誤殺其他子 Agent 正在使用的同名進程。每個子 Agent MUST 記錄自身啟動的輔助進程 PID，不依賴 pattern 清理。
 - **并行上限 ≤9**（rules/01 §0 层硬闸门）
 - 密集并行打开大量 tab 可能触发反爬风控（帐号级共享状态），批次建议 ≤5 个子 Agent
 
@@ -211,7 +216,9 @@ Proxy 持续运行，不建议主动停止——重启后需要在浏览器中�
 
 ⚠️ **Tab 泄漏清理（強制）**：每個子 Agent 任務結束後 MUST 顯式 `curl -s "http://localhost:3456/close?target=<targetId>"` 關閉自行創建的 tab。若 Agent 異常中斷，主線 MUST 在下次任務前掃 `/list` 確認並補關孤兒 tab，防止 tab 累積拖慢 Proxy。
 
-⚠️ **Proxy healthcheck fallback**：Proxy 無回應（`/list` curl 超時或 connection refused）時，**禁止靜默跳過**；MUST 先執行 `node "${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs"` 重新確認狀態。若 check-deps 失敗，回報用戶並中止操作，不得以「應該可以繼續」假設繼續執行。
+⚠️ **子 Agent Timeout 清理（強制）**：子 Agent 超時時，主線 MUST 補執行清理序列：(1) `curl -s "http://localhost:3456/close?target=<targetId>"` 關閉其 tab；(2) 確認 `/list` 中該 targetId 已消失。禁止假設超時的子 Agent 自行清理——實測超時後 tab 不會自動關閉，累積後拖慢 Proxy。
+
+⚠️ **Proxy healthcheck fallback**：Proxy 無回應（`/list` curl 超時或 connection refused）時，**禁止靜默跳過**；MUST 先執行 `node "${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs"` 重新確認狀態。若 check-deps 失敗，回報用戶並中止操作，不得以「應該可以繼續」假設繼續執行。若 check-deps 重試後仍不可用，MUST 降級到靜態層工具（WebSearch / WebFetch / curl）完成任務，並在回覆中說明「CDP 不可用，已使用靜態方式完成」；禁止以「CDP unavailable」為由直接放棄任務而不嘗試降級。
 
 ⚠️ **頁面無預期元素的回退策略**：CDP 操作若目標元素不存在（`querySelector` 返回 null 或 JS 拋錯），MUST 先判斷是「頁面尚未加載完」（等待並 retry ≤2 次）還是「元素本來不存在」（立即改變策略，不無限 retry）；無法取得預期元素時 MUST 回報錯誤，禁止以假設的 fallback 值繼續。
 
